@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Keuangan Tahunan Abil</title>
+    <title>Buku Kas Abil</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module">
@@ -26,6 +26,9 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
         const provider = new GoogleAuthProvider();
+        // Menambahkan parameter agar popup tidak terblokir di beberapa browser
+        provider.setCustomParameters({ prompt: 'select_account' });
+        
         const appId = 'keuangan-tahunan-v1';
 
         let transactions = [];
@@ -39,7 +42,6 @@
         const emptyState = document.getElementById('empty-state');
         const monthFilter = document.getElementById('month-filter');
 
-        // Fungsi Login
         window.login = async () => {
             try {
                 await signInWithPopup(auth, provider);
@@ -49,10 +51,8 @@
             }
         };
 
-        // Fungsi Logout
         window.logout = () => signOut(auth);
 
-        // Pantau Status Login
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 currentUser = user;
@@ -75,6 +75,8 @@
                     transactions.push({ id: doc.id, ...doc.data() });
                 });
                 updateUI();
+            }, (error) => {
+                console.error("Firestore Error:", error);
             });
         }
 
@@ -92,17 +94,23 @@
             };
 
             try {
-                await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, 'transactions'), data);
+                const colRef = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'transactions');
+                await addDoc(colRef, data);
                 e.target.reset();
                 document.getElementById('date').valueAsDate = new Date();
             } catch (error) {
-                alert("Gagal simpan: " + error.message);
+                console.error("Save Error:", error);
+                alert("Gagal menyimpan: " + error.message);
             }
         };
 
         window.deleteTransaction = async (id) => {
             if (!currentUser) return;
-            await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'transactions', id));
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'transactions', id));
+            } catch (error) {
+                alert("Gagal menghapus");
+            }
         };
 
         function formatCurrency(amount) {
@@ -118,24 +126,32 @@
             filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
 
             list.innerHTML = '';
-            let totalInc = 0; totalExp = 0;
+            // PERBAIKAN: Deklarasi variabel totalInc dan totalExp yang benar
+            let totalInc = 0; 
+            let totalExp = 0;
 
             if (filtered.length === 0) {
                 emptyState.classList.remove('hidden');
             } else {
                 emptyState.classList.add('hidden');
                 filtered.forEach((t) => {
-                    if (t.type === 'income') totalInc += t.amount; else totalExp += t.amount;
+                    if (t.type === 'income') {
+                        totalInc += t.amount;
+                    } else {
+                        totalExp += t.amount;
+                    }
+                    
                     const row = document.createElement('tr');
+                    row.className = "border-b hover:bg-gray-50 transition";
                     row.innerHTML = `
-                        <td class="px-4 py-3 text-sm">${t.date}</td>
-                        <td class="px-4 py-3 text-sm">${t.category}</td>
-                        <td class="px-4 py-3 text-sm font-medium">${t.description}</td>
+                        <td class="px-4 py-3 text-sm text-gray-600">${t.date}</td>
+                        <td class="px-4 py-3 text-sm text-gray-500 font-bold">${t.category}</td>
+                        <td class="px-4 py-3 text-sm font-medium text-gray-800">${t.description}</td>
                         <td class="px-4 py-3 text-sm text-right font-bold ${t.type === 'income' ? 'text-blue-600' : 'text-red-600'}">
                             ${formatCurrency(t.amount)}
                         </td>
                         <td class="px-4 py-3 text-center">
-                            <button onclick="deleteTransaction('${t.id}')" class="text-red-400 hover:text-red-600">✕</button>
+                            <button onclick="deleteTransaction('${t.id}')" class="text-red-400 hover:text-red-600 transition">✕</button>
                         </td>
                     `;
                     list.appendChild(row);
@@ -149,7 +165,9 @@
         }
 
         function updateChart() {
-            const ctx = document.getElementById('financeChart').getContext('2d');
+            const canvas = document.getElementById('financeChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
             const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
             const monthlyInc = new Array(12).fill(0);
             const monthlyExp = new Array(12).fill(0);
@@ -168,6 +186,11 @@
                         { label: 'Masuk', data: monthlyInc, backgroundColor: '#3b82f6' },
                         { label: 'Keluar', data: monthlyExp, backgroundColor: '#ef4444' }
                     ]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true } }
                 }
             });
         }
@@ -178,51 +201,58 @@
     </script>
 </head>
 <body class="bg-gray-100 min-h-screen font-sans">
-
-    <!-- TAMPILAN LOGIN -->
-    <div id="login-area" class="flex flex-col items-center justify-center min-h-screen p-4">
-        <div class="bg-white p-8 rounded-2xl shadow-xl text-center max-w-sm w-full">
-            <h1 class="text-2xl font-bold mb-6 text-gray-800">Buku Kas Online Abil</h1>
-            <p class="text-gray-500 mb-8">Pakai akun Google ya! buat simpen data otomatis di semua perangkat. anjay!</p>
-            <button onclick="login()" class="flex items-center justify-center w-full bg-white border border-gray-300 py-2 px-4 rounded-lg hover:bg-gray-50 transition font-medium text-gray-700">
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-5 h-5 mr-3">
+    <!-- LAYAR LOGIN -->
+    <div id="login-area" class="flex items-center justify-center min-h-screen p-4">
+        <div class="bg-white p-10 rounded-3xl shadow-2xl text-center max-w-sm w-full">
+            <h1 class="text-3xl font-black mb-2 text-gray-800 tracking-tight">BUKU KAS ONLINE ABIL</h1>
+            <p class="text-blue-600 font-bold mb-8 uppercase text-xs tracking-widest italic">Pakai akun Google ya! buat simpen data otomatis di semua perangkat. anjay!</p>
+            <button onclick="login()" class="w-full border-2 border-gray-100 p-4 rounded-2xl flex items-center justify-center hover:bg-gray-50 transition-all font-bold text-gray-700 shadow-sm">
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-6 h-6 mr-3">
                 Masuk pakai Google ya!
             </button>
         </div>
     </div>
 
-    <!-- TAMPILAN APLIKASI -->
+    <!-- LAYAR APLIKASI -->
     <div id="app-area" class="hidden max-w-6xl mx-auto p-4 md:p-8">
-        <header class="flex justify-between items-center mb-8">
+        <header class="flex justify-between items-center mb-8 bg-white p-6 rounded-3xl shadow-sm">
             <div>
-                <h1 class="text-2xl font-bold text-gray-800">Catatan Keuangan</h1>
-                <p id="user-display" class="text-sm text-blue-600 font-medium"></p>
+                <h1 id="user-display" class="font-black text-xl text-gray-800"></h1>
+                <p class="text-xs text-blue-500 font-bold">Cloud Synced & Protected</p>
             </div>
-            <button onclick="logout()" class="text-sm text-gray-500 hover:text-red-500">Keluar</button>
+            <button onclick="logout()" class="bg-red-50 text-red-500 px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-100 transition">Keluar</button>
         </header>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-blue-500">
-                <p class="text-xs text-gray-500 uppercase">Pemasukan</p>
-                <p id="total-income" class="text-xl font-bold text-blue-600">Rp 0</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-white p-6 rounded-3xl shadow-sm border-b-8 border-blue-500">
+                <p class="text-xs font-bold text-gray-400 uppercase">Pemasukan</p>
+                <p id="total-income" class="text-2xl font-black text-blue-600 tracking-tight">Rp 0</p>
             </div>
-            <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-red-500">
-                <p class="text-xs text-gray-500 uppercase">Pengeluaran</p>
-                <p id="total-expense" class="text-xl font-bold text-red-600">Rp 0</p>
+            <div class="bg-white p-6 rounded-3xl shadow-sm border-b-8 border-red-500">
+                <p class="text-xs font-bold text-gray-400 uppercase">Pengeluaran</p>
+                <p id="total-expense" class="text-2xl font-black text-red-600 tracking-tight">Rp 0</p>
             </div>
-            <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-green-500">
-                <p class="text-xs text-gray-500 uppercase">Saldo</p>
-                <p id="balance" class="text-xl font-bold text-gray-800">Rp 0</p>
+            <div class="bg-white p-6 rounded-3xl shadow-sm border-b-8 border-gray-800">
+                <p class="text-xs font-bold text-gray-400 uppercase">Saldo</p>
+                <p id="balance" class="text-2xl font-black text-gray-800 tracking-tight">Rp 0</p>
             </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div class="bg-white p-6 rounded-xl shadow-sm">
-                <h3 class="font-bold mb-4">Transaksi Baru</h3>
+            <div class="bg-white p-8 rounded-3xl shadow-sm h-fit">
+                <h3 class="font-black text-lg mb-6 text-gray-800 uppercase tracking-tight">Tambah Baru</h3>
                 <form id="transaction-form" class="space-y-4">
-                    <input type="date" id="date" required class="w-full p-2 border rounded-lg">
-                    <input type="text" id="description" placeholder="Keterangan" required class="w-full p-2 border rounded-lg">
-                    <select id="category" class="w-full p-2 border rounded-lg">
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-black text-gray-400 uppercase ml-1">Tanggal</label>
+                        <input type="date" id="date" required class="w-full p-3 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-black text-gray-400 uppercase ml-1">Deskripsi</label>
+                        <input type="text" id="description" placeholder="Contoh: Belanja Bulanan" required class="w-full p-3 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-black text-gray-400 uppercase ml-1">Kategori</label>
+                        <select id="category" class="w-full p-3 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold">
                             <option>FOOD</option>
                             <option>DRINK</option>
                             <option>RENT</option>
@@ -238,24 +268,34 @@
                             <option>TRF</option>
                             <option>LAIN - LAIN</option>
                             <option>SEDEKAH</option>
-                    </select>
-                    <div class="flex gap-4 p-2 bg-gray-50 rounded-lg">
-                        <label class="flex-1 text-center"><input type="radio" name="type" value="income"> Masuk</label>
-                        <label class="flex-1 text-center"><input type="radio" name="type" value="expense" checked> Keluar</label>
+                        </select>
                     </div>
-                    <input type="number" id="amount" placeholder="Jumlah Rp" required class="w-full p-2 border rounded-lg">
-                    <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg font-bold">Simpan</button>
+                    <div class="flex gap-2 p-1 bg-gray-50 rounded-2xl">
+                        <label class="flex-1">
+                            <input type="radio" name="type" value="income" class="hidden peer">
+                            <div class="text-center py-2 rounded-xl cursor-pointer peer-checked:bg-white peer-checked:shadow-sm text-gray-400 peer-checked:text-blue-600 font-black text-xs transition-all uppercase">Masuk</div>
+                        </label>
+                        <label class="flex-1">
+                            <input type="radio" name="type" value="expense" checked class="hidden peer">
+                            <div class="text-center py-2 rounded-xl cursor-pointer peer-checked:bg-white peer-checked:shadow-sm text-gray-400 peer-checked:text-red-600 font-black text-xs transition-all uppercase">Keluar</div>
+                        </label>
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-black text-gray-400 uppercase ml-1">Jumlah (Rp)</label>
+                        <input type="number" id="amount" placeholder="0" required class="w-full p-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-black text-xl">
+                    </div>
+                    <button type="submit" class="w-full bg-gray-900 text-white py-4 rounded-2xl font-black hover:bg-black transition-all shadow-lg mt-4 uppercase tracking-widest text-sm">Simpan</button>
                 </form>
             </div>
 
-            <div class="lg:col-span-2">
-                <div class="bg-white p-4 rounded-xl shadow-sm mb-6">
-                    <canvas id="financeChart" height="100"></canvas>
+            <div class="lg:col-span-2 space-y-6">
+                <div class="bg-white p-6 rounded-3xl shadow-sm h-64">
+                    <canvas id="financeChart"></canvas>
                 </div>
-                <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-                    <div class="p-4 bg-gray-50 border-b flex justify-between items-center">
-                        <span class="font-bold">Riwayat</span>
-                        <select id="month-filter" class="text-sm border rounded p-1">
+                <div class="bg-white rounded-3xl shadow-sm overflow-hidden">
+                    <div class="p-6 bg-gray-50/50 border-b flex justify-between items-center">
+                        <span class="font-black text-gray-800 uppercase tracking-tight">Riwayat Transaksi</span>
+                        <select id="month-filter" class="text-xs border-none bg-white font-bold rounded-xl p-2 shadow-sm outline-none focus:ring-2 focus:ring-blue-500">
                             <option value="all">Semua Bulan</option>
                             <option value="01">Januari</option><option value="02">Februari</option>
                             <option value="03">Maret</option><option value="04">April</option>
@@ -265,11 +305,13 @@
                             <option value="11">November</option><option value="12">Desember</option>
                         </select>
                     </div>
-                    <div class="overflow-x-auto max-h-96">
+                    <div class="overflow-x-auto">
                         <table class="w-full text-left">
-                            <tbody id="transaction-list"></tbody>
+                            <tbody id="transaction-list" class="divide-y divide-gray-50"></tbody>
                         </table>
-                        <div id="empty-state" class="p-8 text-center text-gray-400">Belum ada data.</div>
+                        <div id="empty-state" class="p-20 text-center">
+                            <p class="text-gray-300 font-black uppercase tracking-widest text-xs">Belum ada data</p>
+                        </div>
                     </div>
                 </div>
             </div>
