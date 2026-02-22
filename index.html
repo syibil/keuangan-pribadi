@@ -47,19 +47,34 @@
                 await signInWithPopup(auth, provider);
             } catch (error) {
                 console.error("Login Error:", error);
-                alert("Gagal Login: " + error.message);
+                if (error.code === 'auth/user-disabled') {
+                    alert("Masa aktif akun Anda telah berakhir. Silakan hubungi instagram @slipknotcrochet_ untuk aktivasi kembali!");
+                } else {
+                    alert("Gagal Login: " + error.message);
+                }
             }
         };
-
+        
         window.logout = () => signOut(auth);
-
-        onAuthStateChanged(auth, (user) => {
+        
+        onAuthStateChanged(auth, async (user) => {
             if (user) {
-                currentUser = user;
-                loginArea.classList.add('hidden');
-                appArea.classList.remove('hidden');
-                userDisplay.innerText = `Halo, ${user.displayName}`;
-                setupRealtimeListener(user.uid);
+                try {
+                    // Memaksa refresh token untuk mengecek apakah akun masih aktif/enabled
+                    await user.getIdToken(true);
+                    
+                    currentUser = user;
+                    loginArea.classList.add('hidden');
+                    appArea.classList.remove('hidden');
+                    userDisplay.innerText = `Halo, ${user.displayName}`;
+                    setupRealtimeListener(user.uid);
+                } catch (error) {
+                    // Jika akun di-disable, getIdToken akan gagal
+                    if (error.code === 'auth/user-disabled') {
+                        alert("Akun Anda telah dinonaktifkan. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
+                        signOut(auth); // Paksa logout
+                    }
+                }
             } else {
                 currentUser = null;
                 loginArea.classList.remove('hidden');
@@ -255,6 +270,7 @@
                         <select id="category" class="w-full p-3 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold">
                             <option>FOOD</option>
                             <option>DRINK</option>
+                            <option>BELANJA BULANAN</option>
                             <option>RENT</option>
                             <option>BEAUTY</option>
                             <option>HEALTH</option>
@@ -263,9 +279,10 @@
                             <option>ENTERTAIN</option>
                             <option>CLOTHES</option>
                             <option>EDUCATION</option>
+                            <option>DIGITAL SUBS (game, apps, netflix)</option>
                             <option>GAJI POKOK</option>
                             <option>FREELANCE</option>
-                            <option>TRF</option>
+                            <option>INVEST</option>
                             <option>LAIN - LAIN</option>
                             <option>SEDEKAH</option>
                         </select>
