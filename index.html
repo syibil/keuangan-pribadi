@@ -43,82 +43,83 @@
         const monthFilter = document.getElementById('month-filter');
 
         window.login = async () => {
-        try {
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            
-            // Simpan tanda bahwa kita sedang mencoba login (mencegah loop)
-            sessionStorage.setItem('isLoggingIn', 'true');
-            
-            await setPersistence(auth, browserLocalPersistence);
-            
-            if (isMobile) {
-                console.log("Memulai login redirect untuk mobile... ☺️");
-                await signInWithRedirect(auth, provider);
-            } else {
-                await signInWithPopup(auth, provider);
-            }
-        } catch (error) {
-            sessionStorage.removeItem('isLoggingIn');
-            console.error("Login Error:", error);
-            if (error.code === 'auth/user-disabled') {
-                alert("Masa aktif akun Anda telah berakhir. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
-            } else if (error.code !== 'auth/cancelled-popup-request' && error.code !== 'auth/popup-closed-by-user') {
-                alert("Gagal Login: " + error.message);
-            }
+    try {
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        
+        // Gunakan localStorage karena Safari mobile sering membersihkan sessionStorage saat redirect
+        localStorage.setItem('pendingLogin', 'true');
+        
+        await setPersistence(auth, browserLocalPersistence);
+        
+        if (isMobile) {
+            console.log("Memulai login redirect untuk mobile... ☺️");
+            await signInWithRedirect(auth, provider);
+        } else {
+            await signInWithPopup(auth, provider);
         }
-    };
-    
-    window.logout = () => {
-        sessionStorage.clear();
-        signOut(auth);
-    };
-    
-    // Listener Status Login dengan Proteksi Sesi Safari
-    onAuthStateChanged(auth, async (user) => {
-        // Jika ada user, langsung masuk ke aplikasi
-        if (user) {
-            sessionStorage.removeItem('isLoggingIn');
-            try {
-                await user.getIdToken(true);
-                currentUser = user;
-                loginArea.classList.add('hidden');
-                appArea.classList.remove('hidden');
-                userDisplay.innerText = `Halo, ${user.displayName}`;
-                setupRealtimeListener(user.uid);
-            } catch (error) {
-                if (error.code === 'auth/user-disabled') {
-                    alert("Akun dinonaktifkan. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
-                    signOut(auth);
-                }
-            }
-            return; // Berhenti di sini jika user sudah ada
+    } catch (error) {
+        localStorage.removeItem('pendingLogin');
+        console.error("Login Error:", error);
+        if (error.code === 'auth/user-disabled') {
+            alert("Masa aktif akun Anda telah berakhir. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
+        } else if (error.code !== 'auth/cancelled-popup-request' && error.code !== 'auth/popup-closed-by-user') {
+            alert("Gagal Login: " + error.message);
         }
-    
-        // Jika tidak ada user, cek apakah baru saja kembali dari Redirect
+    }
+};
+
+window.logout = () => {
+    localStorage.removeItem('pendingLogin');
+    signOut(auth);
+};
+
+// Listener Status Login dengan Proteksi Sesi Safari
+onAuthStateChanged(auth, async (user) => {
+    // Jika ada user, bersihkan status dan masuk ke aplikasi
+    if (user) {
+        localStorage.removeItem('pendingLogin');
         try {
-            const result = await getRedirectResult(auth);
-            if (result && result.user) {
-                sessionStorage.removeItem('isLoggingIn');
-                // User akan terdeteksi pada putaran listener berikutnya karena persistence
-                return;
-            }
+            await user.getIdToken(true);
+            currentUser = user;
+            loginArea.classList.add('hidden');
+            appArea.classList.remove('hidden');
+            userDisplay.innerText = `Halo, ${user.displayName}`;
+            setupRealtimeListener(user.uid);
         } catch (error) {
-            sessionStorage.removeItem('isLoggingIn');
             if (error.code === 'auth/user-disabled') {
                 alert("Akun dinonaktifkan. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
+                signOut(auth);
             }
         }
-    
-        // Tampilkan layar login HANYA jika tidak sedang dalam proses login
-        if (!sessionStorage.getItem('isLoggingIn')) {
+        return;
+    }
+
+    // Jika tidak ada user, cek apakah baru kembali dari Redirect
+    try {
+        const result = await getRedirectResult(auth);
+        if (result && result.user) {
+            localStorage.removeItem('pendingLogin');
+            return; 
+        }
+    } catch (error) {
+        localStorage.removeItem('pendingLogin');
+        if (error.code === 'auth/user-disabled') {
+            alert("Akun dinonaktifkan. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
+        }
+    }
+
+    // Solusi Safari: Berikan jeda 1 detik sebelum memunculkan tombol login
+    // Ini memberi waktu bagi Firebase untuk 'mengenali' user setelah redirect
+    setTimeout(() => {
+        if (!auth.currentUser && !localStorage.getItem('pendingLogin')) {
             currentUser = null;
             loginArea.classList.remove('hidden');
             appArea.classList.add('hidden');
         } else {
-            // Tampilkan loading atau biarkan layar kosong sebentar selagi menunggu Firebase
-            console.log("Sedang memproses autentikasi...");
+            console.log("Menunggu sinkronisasi...");
         }
-    });
+    }, 1000);
+});
         function setupRealtimeListener(userId) {
             const q = collection(db, 'artifacts', appId, 'users', userId, 'transactions');
             onSnapshot(q, (snapshot) => {
