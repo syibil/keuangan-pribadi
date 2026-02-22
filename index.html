@@ -43,27 +43,58 @@
         const monthFilter = document.getElementById('month-filter');
 
          window.login = async () => {
-            try {
-                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-                
-                // Menandai sedang proses login agar Safari tidak looping
-                localStorage.setItem('pendingLogin', 'true');
-                
-                await setPersistence(auth, browserLocalPersistence);
-                
-                if (isMobile) {
-                    await signInWithRedirect(auth, provider);
-                } else {
-                    await signInWithPopup(auth, provider);
-                }
-            } catch (error) {
-                localStorage.removeItem('pendingLogin');
-                console.error("Login Error:", error);
-                if (error.code === 'auth/user-disabled') {
-                    alert("Masa aktif akun berakhir. Hubungi @slipknotcrochet_ untuk Berlangganan");
-                }
+    try {
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        await setPersistence(auth, browserLocalPersistence);
+        
+        // Simpan tanda di memori browser agar tidak dianggap 'Logged Out' saat balik dari Google
+        localStorage.setItem('isAuthenticating', 'true');
+        
+        if (isMobile) {
+            await signInWithRedirect(auth, provider);
+        } else {
+            await signInWithPopup(auth, provider);
+        }
+    } catch (error) {
+        localStorage.removeItem('isAuthenticating');
+        console.error("Login Error:", error);
+    }
+};
+
+async function handleAuthState() {
+    try {
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+            localStorage.removeItem('isAuthenticating');
+        }
+    } catch (error) {
+        localStorage.removeItem('isAuthenticating');
+    }
+
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            // JIKA USER ADA: Masuk ke aplikasi
+            localStorage.removeItem('isAuthenticating');
+            currentUser = user;
+            loginArea.classList.add('hidden');
+            appArea.classList.remove('hidden');
+            userDisplay.innerText = `Halo, ${user.displayName}`;
+            setupRealtimeListener(user.uid);
+        } else {
+            // JIKA USER TIDAK ADA: Cek dulu, apakah lagi proses login?
+            const isAuthProcess = localStorage.getItem('isAuthenticating');
+            
+            if (!isAuthProcess) {
+                // Hanya tampilkan layar login jika memang TIDAK sedang proses login
+                currentUser = null;
+                loginArea.classList.remove('hidden');
+                appArea.classList.add('hidden');
             }
-        };
+            // Jika isAuthProcess == 'true', kita biarkan layar kosong/loading 
+            // agar tidak mental kembali ke tombol login.
+        }
+    });
+}
 
         window.logout = () => {
             localStorage.removeItem('pendingLogin');
