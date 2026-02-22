@@ -45,56 +45,77 @@
          window.login = async () => {
     try {
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        
+        // Memastikan sesi disimpan di browser (Local)
         await setPersistence(auth, browserLocalPersistence);
         
-        // Simpan tanda di memori browser agar tidak dianggap 'Logged Out' saat balik dari Google
+        // Tandai bahwa proses login sedang dimulai
         localStorage.setItem('isAuthenticating', 'true');
         
         if (isMobile) {
+            // Gunakan Redirect untuk Mobile agar tidak diblokir popup
             await signInWithRedirect(auth, provider);
         } else {
-            await signInWithPopup(auth, provider);
+            // Gunakan Popup untuk Desktop agar lebih cepat
+            const result = await signInWithPopup(auth, provider);
+            if (result.user) {
+                localStorage.removeItem('isAuthenticating');
+            }
         }
     } catch (error) {
         localStorage.removeItem('isAuthenticating');
         console.error("Login Error:", error);
+        alert("Gagal Login: " + error.message);
     }
 };
 
+// 2. LOGIKA AUTH STATE YANG LEBIH STABIL (ANTI LOOP & BISA MASUK)
 async function handleAuthState() {
-    try {
-        const result = await getRedirectResult(auth);
-        if (result?.user) {
+    // Jalankan pengecekan redirect result HANYA jika memang ada tanda sedang proses login
+    if (localStorage.getItem('isAuthenticating') === 'true') {
+        try {
+            const result = await getRedirectResult(auth);
+            if (result?.user) {
+                localStorage.removeItem('isAuthenticating');
+            }
+        } catch (error) {
+            console.error("Redirect Error:", error);
             localStorage.removeItem('isAuthenticating');
         }
-    } catch (error) {
-        localStorage.removeItem('isAuthenticating');
     }
 
-    onAuthStateChanged(auth, (user) => {
+    // Listener utama untuk memantau status login
+    onAuthStateChanged(auth, async (user) => {
         if (user) {
-            // JIKA USER ADA: Masuk ke aplikasi
+            // BERHASIL MASUK
             localStorage.removeItem('isAuthenticating');
             currentUser = user;
+            
+            // Sembunyikan layar login, tampilkan aplikasi
             loginArea.classList.add('hidden');
             appArea.classList.remove('hidden');
             userDisplay.innerText = `Halo, ${user.displayName}`;
+            
+            // Jalankan sinkronisasi data
             setupRealtimeListener(user.uid);
         } else {
-            // JIKA USER TIDAK ADA: Cek dulu, apakah lagi proses login?
+            // TIDAK ADA USER
             const isAuthProcess = localStorage.getItem('isAuthenticating');
             
-            if (!isAuthProcess) {
-                // Hanya tampilkan layar login jika memang TIDAK sedang proses login
+            // Jika tidak sedang dalam proses login, baru tampilkan layar login
+            if (isAuthProcess !== 'true') {
                 currentUser = null;
                 loginArea.classList.remove('hidden');
                 appArea.classList.add('hidden');
             }
-            // Jika isAuthProcess == 'true', kita biarkan layar kosong/loading 
-            // agar tidak mental kembali ke tombol login.
+            // Jika isAuthProcess == 'true', biarkan layar kosong (loading) 
+            // agar Firebase punya waktu untuk memproses login.
         }
     });
 }
+
+// Jalankan fungsi saat script dimuat
+handleAuthState();
 
         window.logout = () => {
             localStorage.removeItem('pendingLogin');
