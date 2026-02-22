@@ -43,57 +43,63 @@
         const monthFilter = document.getElementById('month-filter');
 
         window.login = async () => {
-            try {
-                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-                if (isMobile) {
-                    // Pake Redirect biar lancar di HP (Safari/Chrome Mobile)
-                    await signInWithRedirect(auth, provider);
-                } else {
-                    // Pake Popup biar lancar di Laptop/Desktop
-                    await signInWithPopup(auth, provider);
-                }
-            } catch (error) {
-                if (error.code === 'auth/user-disabled') {
-                    alert("Masa aktif akun Anda telah berakhir. Hubungi instagram @slipknotcrochet_");
-                } else if (error.code !== 'auth/cancelled-popup-request' && error.code !== 'auth/popup-closed-by-user') {
-                    alert("Gagal Login: " + error.message);
-                }
+        try {
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            
+            if (isMobile) {
+                console.log("Memulai login redirect untuk mobile... ☺️");
+                // Metode Redirect biar gak diblokir browser HP
+                await signInWithRedirect(auth, provider);
+            } else {
+                // Metode Popup untuk Laptop
+                await signInWithPopup(auth, provider);
             }
-        };
+        } catch (error) {
+            console.error("Login Error:", error);
+            if (error.code === 'auth/user-disabled') {
+                alert("Masa aktif akun Anda telah berakhir. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
+            } else if (error.code !== 'auth/cancelled-popup-request' && error.code !== 'auth/popup-closed-by-user') {
+                alert("Gagal Login: " + error.message);
+            }
+        }
+    };
+
         
         window.logout = () => signOut(auth);
         
         onAuthStateChanged(auth, async (user) => {
-            // Menangani hasil jika login pakai metode Redirect (HP)
+        // PENTING: Menangkap hasil setelah kembali dari halaman Google (Redirect)
+        try {
+            const result = await getRedirectResult(auth);
+            if (result) console.log("Berhasil login kembali dari Google.");
+        } catch (error) {
+            if (error.code === 'auth/user-disabled') {
+                alert("Akun dinonaktifkan. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
+                return;
+            }
+        }
+    
+        if (user) {
             try {
-                await getRedirectResult(auth);
+                // Cek paksa apakah akun masih enabled di Console
+                await user.getIdToken(true);
+                currentUser = user;
+                loginArea.classList.add('hidden');
+                appArea.classList.remove('hidden');
+                userDisplay.innerText = `Halo, ${user.displayName}`;
+                setupRealtimeListener(user.uid);
             } catch (error) {
                 if (error.code === 'auth/user-disabled') {
-                    alert("Akun Anda telah dinonaktifkan. Hubungi @slipknotcrochet_ untuk Berlangganan");
+                    alert("Akun dinonaktifkan. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
+                    signOut(auth);
                 }
             }
-        
-            if (user) {
-                try {
-                    // Cek apakah akun masih di-enable oleh Anda di Console
-                    await user.getIdToken(true);
-                    currentUser = user;
-                    loginArea.classList.add('hidden');
-                    appArea.classList.remove('hidden');
-                    userDisplay.innerText = `Halo, ${user.displayName}`;
-                    setupRealtimeListener(user.uid);
-                } catch (error) {
-                    if (error.code === 'auth/user-disabled') {
-                        alert("Akun Anda telah dinonaktifkan. Hubungi @slipknotcrochet_ untuk Berlangganan");
-                        signOut(auth);
-                    }
-                }
-            } else {
-                currentUser = null;
-                loginArea.classList.remove('hidden');
-                appArea.classList.add('hidden');
-            }
-        });
+        } else {
+            currentUser = null;
+            loginArea.classList.remove('hidden');
+            appArea.classList.add('hidden');
+        }
+    });
 
         function setupRealtimeListener(userId) {
             const q = collection(db, 'artifacts', appId, 'users', userId, 'transactions');
