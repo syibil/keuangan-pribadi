@@ -9,7 +9,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
         // Konfigurasi Firebase dari Environment
         const firebaseConfig = {
@@ -46,15 +46,19 @@
         try {
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
             
+            // Simpan tanda bahwa kita sedang mencoba login (mencegah loop)
+            sessionStorage.setItem('isLoggingIn', 'true');
+            
+            await setPersistence(auth, browserLocalPersistence);
+            
             if (isMobile) {
                 console.log("Memulai login redirect untuk mobile... ☺️");
-                // Metode Redirect biar gak diblokir browser HP
                 await signInWithRedirect(auth, provider);
             } else {
-                // Metode Popup untuk Laptop
                 await signInWithPopup(auth, provider);
             }
         } catch (error) {
+            sessionStorage.removeItem('isLoggingIn');
             console.error("Login Error:", error);
             if (error.code === 'auth/user-disabled') {
                 alert("Masa aktif akun Anda telah berakhir. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
@@ -63,25 +67,18 @@
             }
         }
     };
-
-        
-        window.logout = () => signOut(auth);
-        
-        onAuthStateChanged(auth, async (user) => {
-        // PENTING: Menangkap hasil setelah kembali dari halaman Google (Redirect)
-        try {
-            const result = await getRedirectResult(auth);
-            if (result) console.log("Berhasil login kembali dari Google.");
-        } catch (error) {
-            if (error.code === 'auth/user-disabled') {
-                alert("Akun dinonaktifkan. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
-                return;
-            }
-        }
     
+    window.logout = () => {
+        sessionStorage.clear();
+        signOut(auth);
+    };
+    
+    // Listener Status Login dengan Proteksi Sesi Safari
+    onAuthStateChanged(auth, async (user) => {
+        // Jika ada user, langsung masuk ke aplikasi
         if (user) {
+            sessionStorage.removeItem('isLoggingIn');
             try {
-                // Cek paksa apakah akun masih enabled di Console
                 await user.getIdToken(true);
                 currentUser = user;
                 loginArea.classList.add('hidden');
@@ -94,13 +91,34 @@
                     signOut(auth);
                 }
             }
-        } else {
+            return; // Berhenti di sini jika user sudah ada
+        }
+    
+        // Jika tidak ada user, cek apakah baru saja kembali dari Redirect
+        try {
+            const result = await getRedirectResult(auth);
+            if (result && result.user) {
+                sessionStorage.removeItem('isLoggingIn');
+                // User akan terdeteksi pada putaran listener berikutnya karena persistence
+                return;
+            }
+        } catch (error) {
+            sessionStorage.removeItem('isLoggingIn');
+            if (error.code === 'auth/user-disabled') {
+                alert("Akun dinonaktifkan. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
+            }
+        }
+    
+        // Tampilkan layar login HANYA jika tidak sedang dalam proses login
+        if (!sessionStorage.getItem('isLoggingIn')) {
             currentUser = null;
             loginArea.classList.remove('hidden');
             appArea.classList.add('hidden');
+        } else {
+            // Tampilkan loading atau biarkan layar kosong sebentar selagi menunggu Firebase
+            console.log("Sedang memproses autentikasi...");
         }
     });
-
         function setupRealtimeListener(userId) {
             const q = collection(db, 'artifacts', appId, 'users', userId, 'transactions');
             onSnapshot(q, (snapshot) => {
