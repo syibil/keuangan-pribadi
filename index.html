@@ -42,84 +42,76 @@
         const emptyState = document.getElementById('empty-state');
         const monthFilter = document.getElementById('month-filter');
 
-        window.login = async () => {
-    try {
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        
-        // Gunakan localStorage karena Safari mobile sering membersihkan sessionStorage saat redirect
-        localStorage.setItem('pendingLogin', 'true');
-        
-        await setPersistence(auth, browserLocalPersistence);
-        
-        if (isMobile) {
-            console.log("Memulai login redirect untuk mobile... ☺️");
-            await signInWithRedirect(auth, provider);
-        } else {
-            await signInWithPopup(auth, provider);
-        }
-    } catch (error) {
-        localStorage.removeItem('pendingLogin');
-        console.error("Login Error:", error);
-        if (error.code === 'auth/user-disabled') {
-            alert("Masa aktif akun Anda telah berakhir. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
-        } else if (error.code !== 'auth/cancelled-popup-request' && error.code !== 'auth/popup-closed-by-user') {
-            alert("Gagal Login: " + error.message);
-        }
-    }
-};
-
-window.logout = () => {
-    localStorage.removeItem('pendingLogin');
-    signOut(auth);
-};
-
-// Listener Status Login dengan Proteksi Sesi Safari
-onAuthStateChanged(auth, async (user) => {
-    // Jika ada user, bersihkan status dan masuk ke aplikasi
-    if (user) {
-        localStorage.removeItem('pendingLogin');
-        try {
-            await user.getIdToken(true);
-            currentUser = user;
-            loginArea.classList.add('hidden');
-            appArea.classList.remove('hidden');
-            userDisplay.innerText = `Halo, ${user.displayName}`;
-            setupRealtimeListener(user.uid);
-        } catch (error) {
-            if (error.code === 'auth/user-disabled') {
-                alert("Akun dinonaktifkan. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
-                signOut(auth);
+         window.login = async () => {
+            try {
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                
+                // Menandai sedang proses login agar Safari tidak looping
+                localStorage.setItem('pendingLogin', 'true');
+                
+                await setPersistence(auth, browserLocalPersistence);
+                
+                if (isMobile) {
+                    await signInWithRedirect(auth, provider);
+                } else {
+                    await signInWithPopup(auth, provider);
+                }
+            } catch (error) {
+                localStorage.removeItem('pendingLogin');
+                console.error("Login Error:", error);
+                if (error.code === 'auth/user-disabled') {
+                    alert("Masa aktif akun berakhir. Hubungi @slipknotcrochet_ untuk Berlangganan");
+                }
             }
-        }
-        return;
-    }
+        };
 
-    // Jika tidak ada user, cek apakah baru kembali dari Redirect
-    try {
-        const result = await getRedirectResult(auth);
-        if (result && result.user) {
+        window.logout = () => {
             localStorage.removeItem('pendingLogin');
-            return; 
-        }
-    } catch (error) {
-        localStorage.removeItem('pendingLogin');
-        if (error.code === 'auth/user-disabled') {
-            alert("Akun dinonaktifkan. Hubungi instagram @slipknotcrochet_ untuk Berlangganan");
-        }
-    }
+            signOut(auth).then(() => location.reload());
+        };
 
-    // Solusi Safari: Berikan jeda 1 detik sebelum memunculkan tombol login
-    // Ini memberi waktu bagi Firebase untuk 'mengenali' user setelah redirect
-    setTimeout(() => {
-        if (!auth.currentUser && !localStorage.getItem('pendingLogin')) {
-            currentUser = null;
-            loginArea.classList.remove('hidden');
-            appArea.classList.add('hidden');
-        } else {
-            console.log("Menunggu sinkronisasi...");
+        async function handleAuthState() {
+            // Cek redirect result dulu (Penting untuk Safari Mobile)
+            try {
+                const result = await getRedirectResult(auth);
+                if (result?.user) {
+                    localStorage.removeItem('pendingLogin');
+                }
+            } catch (e) {
+                localStorage.removeItem('pendingLogin');
+            }
+
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    localStorage.removeItem('pendingLogin');
+                    try {
+                        await user.getIdToken(true);
+                        currentUser = user;
+                        loginArea.classList.add('hidden');
+                        appArea.classList.remove('hidden');
+                        userDisplay.innerText = `Halo, ${user.displayName}`;
+                        setupRealtimeListener(user.uid);
+                    } catch (error) {
+                        if (error.code === 'auth/user-disabled') {
+                            alert("Akun dinonaktifkan!");
+                            signOut(auth);
+                        }
+                    }
+                } else {
+                    // Jeda 1.5 detik khusus untuk Safari sinkronisasi sesi
+                    setTimeout(() => {
+                        if (!auth.currentUser && !localStorage.getItem('pendingLogin')) {
+                            currentUser = null;
+                            loginArea.classList.remove('hidden');
+                            appArea.classList.add('hidden');
+                        }
+                    }, 1500);
+                }
+            });
         }
-    }, 1000);
-});
+
+        handleAuthState();
+        
         function setupRealtimeListener(userId) {
             const q = collection(db, 'artifacts', appId, 'users', userId, 'transactions');
             onSnapshot(q, (snapshot) => {
